@@ -1,5 +1,7 @@
 # PhenoFECT: Phenology Forecasting and Exploring under ClimaTe change
 
+This package is developed as a [CSBL](https://github.com/CompSynBioLab-KoreaUniv) URAP (undergraduate research apprentice project) during 2024 Summer by [Songwon Kim](https://github.com/SongWon03).
+
 ## What is PhenoFECT?
 
 **PhenoFECT** is an open-source and open meteorological/phenology data (for Korea & Japan) embedded python package designed to guide the overall analysis procedure for **Budding & Flowering Prediction** applicable to user-target plant. It offers useful functions including, Key Parameter Examination of temperature-based model, Clustering, Visualization, Downloading & Merging Phenological and Meteorological Data... and so on. The Chill-Day model (CDM) refined by PhenoFECT showed the highest prediction accuracy for Korean local areas. The root mean square error (RMSE) for the prediction of flowering event decreased about 1–8 days for three temperate zone angiosperms. Under global warming and climate change, the timing of the phenological events of flowering plants is one of the good **climate change indicator**. PhenoFECT can be utilized to predict the phenological event of diverse orchard and tree species and has an advantage of easy-to-use due to the embedded dataset.  
@@ -29,7 +31,7 @@ What is **Chill-Day model** and how to apply?
 ## Main Features
 
 PhenoFECT is designed to specialize in these areas.
-- Contains sufficient [Embedded Data for Korea](#description-for-embedded-dataset) extracted from [**Public Data Portal in Korea**](https://www.data.go.kr/) and [Embedded Data for Japan]() extracted from [**JMA (Japan Meteorological Administration)**](). 
+- Contains sufficient [Embedded Data for Korea](#description-for-embedded-dataset-korea) extracted from [**Public Data Portal in Korea**](https://www.data.go.kr/) and [Embedded Data for Japan](#description-for-embedded-dataset-japan) extracted from [**JMA (Japan Meteorological Agency)**](https://www.data.jma.go.jp/stats/etrn/index.php?prec_no=&block_no=&year=&month=1&day=&view=). 
 - Easily [download and merge](https://wikidocs.net/272158) various types of phenological and meteorological data into the embedded data set or create your own. [Filter and Preprocess]([https://wikidocs.net/272158](https://wikidocs.net/272259)) data to make it compatible with the package.
 - [Predict Bud-burst](https://wikidocs.net/272309) and [Predict Flowering](https://wikidocs.net/272326) simultaneously for multiple regions with Chill-Day Model and Dataset. Highest accuracy for Korean local areas among previously published models.
 - Simple application of [Hierarchical Clustering](https://wikidocs.net/272554) based on Chill-Day Model Temperature Time and [2D & 3D t-SNE method](https://wikidocs.net/272554) for future analysis.
@@ -66,7 +68,7 @@ All embedded dataset can be downloaded from [this repository](https://github.com
 |plumblossom_phenology_data|Plum blossom (flowering)|102 locations|1953-2024 (Maximum)|[JMA](https://www.data.jma.go.jp/sakura/data/index.html)|
 |wisteria_phenology_data|Wisteria (flowering)|102 locations|1953-2020 (Maximum)|[JMA](https://www.data.jma.go.jp/sakura/data/index.html)|
 
-All embedded dataset can be downloaded from [this repository](https://github.com/SongWon03/PhenoFECT/tree/main/Embedded_Dataset) or [here](https://drive.google.com/drive/folders/1C1-MjZfz-xxKi8u51Na7rhOPy-hr4DrV).   
+All embedded dataset can be downloaded from [this repository](https://github.com/SongWon03/PhenoFECT/tree/main/Embedded_Dataset) or [here](https://drive.google.com/drive/folders/1C1-MjZfz-xxKi8u51Na7rhOPy-hr4DrV). For the `daily_meteorological_data`, we utilized the `jmastats` [R package](https://github.com/cran/jmastats).    
 **Note**: The Chill-Day model (CDM) is species-specific model. The information about observed species and observation method is in [JMA](https://www.data.jma.go.jp/sakura/data/index.html). 
 
 
@@ -103,7 +105,7 @@ pip install phenofect
 ## Useful Readings & Links
 
 - [KMA (Korea Meteorological Administration)](https://data.kma.go.kr/)
-- [JMA (Japan Meteorological Administration)](https://www.data.jma.go.jp/stats/etrn/index.php?prec_no=&block_no=&year=&month=1&day=&view=)
+- [JMA (Japan Meteorological Agency)](https://www.data.jma.go.jp/stats/etrn/index.php?prec_no=&block_no=&year=&month=1&day=&view=)
 - [Public Data Portal in Korea](https://www.data.go.kr/)
 - [Chilling and forcing model to predict bud-burst of crop and forest species](https://www.sciencedirect.com/science/article/abs/pii/S0168192304000632)
 - [Predicting Cherry Flowering Date Using a Plant Phonology Model](https://www.researchgate.net/publication/263643081_Predicting_Cherry_Flowering_Date_Using_a_Plant_Phonology_Model)
