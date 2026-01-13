@@ -208,13 +208,14 @@ class phenology_prediction():
         yearly_temperature_data['cd_accumulation'] = yearly_temperature_data['chilldays'].cumsum()
         
         # dormancy release date
+        dormancy_release_date = None
         if (yearly_temperature_data['cd_accumulation'] <= chill_requirement).any():
             dormancy_release_date = yearly_temperature_data[yearly_temperature_data['cd_accumulation'] <= chill_requirement].iloc[0]['tm']
         elif 'ssDur' in yearly_temperature_data.columns:
-            if (yearly_temperature_data[(yearly_temperature_data['tm'] >= f'{year}-01-31') & (yearly_temperature_data['ssDur'] >= day_length)]).any().any():
-                dormancy_release_date = yearly_temperature_data[yearly_temperature_data['ssDur'] >= day_length].iloc[0]['tm']
-        else:
-            dormancy_release_date = None
+            tm_threshold = pd.Timestamp(year, 1, 31)
+            condition = ((yearly_temperature_data['tm'] >= tm_threshold) & (yearly_temperature_data['ssDur'] >= day_length))
+            if condition.any():
+                dormancy_release_date = yearly_temperature_data[condition].iloc[0]['tm']
         
         if dormancy_release_date is None:
             return None, None
