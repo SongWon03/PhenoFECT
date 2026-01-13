@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 import matplotlib.pyplot as plt  # type: ignore
 from matplotlib.backends.backend_pdf import PdfPages # type: ignore
 from matplotlib.ticker import MultipleLocator
-import japanize_matplotlib
 from mpl_toolkits.mplot3d import Axes3D # type: ignore
 import seaborn as sns # type: ignore
 from scipy.interpolate import RegularGridInterpolator # type: ignore
