@@ -27,6 +27,7 @@ What is **Chill-Day model** and how to apply?
 ## How to use PhenoFECT?
 
 [Here](https://wikidocs.net/book/17034) is the detailed user guide of PhenoFECT.  
+Also, you can find tutorial of PhenoFECT in [example notebook](https://github.com/SongWon03/PhenoFECT/blob/main/example.ipynb).
 
 ## Main Features
 
@@ -94,7 +95,7 @@ In the Phenology Model, we call the cold requirement as '*Chill-requirement(Cr)*
 The source code is currently hosted on GitHub at:
 [https://github.com/SongWon03/PhenoFECT](https://github.com/SongWon03/PhenoFECT)
 
-Installers for the latest released version are available at the [Python Package Index (PyPI)](https://pypi.org/project/pyCDM4F/)
+Installers for the latest released version are available at the [Python Package Index (PyPI)](https://pypi.org/project/phenofect/)
 
 ```python
 # PyPI
