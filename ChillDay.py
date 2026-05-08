@@ -1,23 +1,24 @@
 ##### requirements #####
-import pandas as pd # type: ignore
+import pandas as pd 
 import numpy as np
-import seaborn as sns # type: ignore
+import seaborn as sns 
 import sys
 import os
-import matplotlib.pyplot as plt  # type: ignore
+import matplotlib.pyplot as plt  
 import matplotlib.colors as mcolors
-from matplotlib.backends.backend_pdf import PdfPages # type: ignore
+from matplotlib.backends.backend_pdf import PdfPages 
 from matplotlib.ticker import MultipleLocator
 from datetime import datetime, timezone
-from mpl_toolkits.mplot3d import Axes3D # type: ignore
-from scipy.interpolate import RegularGridInterpolator # type: ignore
-from scipy.cluster.hierarchy import dendrogram, linkage, fcluster # type: ignore
-from sklearn.linear_model import LinearRegression # type: ignore
-from sklearn.preprocessing import StandardScaler # type: ignore
-from sklearn.cluster import AgglomerativeClustering # type: ignore
-from sklearn.manifold import TSNE # type: ignore
+from mpl_toolkits.mplot3d import Axes3D 
+from scipy.interpolate import RegularGridInterpolator 
+from scipy.cluster.hierarchy import dendrogram, linkage, fcluster 
+from sklearn.linear_model import LinearRegression 
+from sklearn.preprocessing import StandardScaler 
+from sklearn.cluster import AgglomerativeClustering 
+from sklearn.manifold import TSNE 
 from ast import literal_eval
 from concurrent.futures import ProcessPoolExecutor
+from itertools import product
 from pathlib import Path
 from Variables import el_nino_years, la_nina_years
 from tqdm.auto import tqdm
@@ -117,7 +118,7 @@ def split_train_test(phenology_data, n_samples, output_dir="./train_test_data", 
     return pd.DataFrame(summary)
 
 
-### Bud-burst. Flowering Prediction based on Chill-Days Model Formulas ###
+### Bud-burst & Flowering prediction based on Chill-Days Model Formulas ###
 class ChillDayFormula():
     def calculate_chilldays(row, Tc):   # Tc = temperature_threshold
         Tn = row['minTa']
@@ -158,7 +159,58 @@ class ChillDayFormula():
             return 0  # Added an else condition to handle cases not covered by the if-elif blocks
 
 
+### Helper functions for parallel processing and prediction for each location ###
+def _resolve_worker_count(n_jobs):
+    if n_jobs is None or n_jobs == -1:
+        cpu_count = os.cpu_count() or 1
+        return max(1, cpu_count - 1)
 
+    try:
+        worker_count = int(n_jobs)
+    except (TypeError, ValueError):
+        worker_count = 1
+
+    return max(1, worker_count)
+
+def _build_progress_iterator(iterable, desc, total, enabled=True):
+    if not enabled:
+        return iterable
+
+    return tqdm(iterable, desc=desc, total=total, leave=False, mininterval=0.5,dynamic_ncols=True,position=0,
+        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}')
+
+
+def _predict_budburst_for_location(args):
+    location, location_temperature_data, years, temperature_threshold, chill_requirement = args
+    results = []
+    for year in years:
+        start_date = datetime(year - 1, 9, 1)
+        end_date = datetime(year, 6, 1)
+        yearly_temperature_data = location_temperature_data[(location_temperature_data['tm'] >= start_date) & (location_temperature_data['tm'] < end_date)]
+
+        if not yearly_temperature_data.empty:
+            _, budburst_date = phenology_prediction.budburst(yearly_temperature_data, temperature_threshold, chill_requirement, abs(chill_requirement))
+            if budburst_date is not None:
+                results.append([location, year, budburst_date])
+    return results
+
+
+def _predict_flowering_for_location(args):
+    location, location_temperature_data, years, temperature_threshold, chill_requirement, heat_requirement, day_length = args
+    results = []
+    for year in years:
+        start_date = datetime(year - 1, 9, 1)
+        end_date = datetime(year, 6, 1)
+        yearly_temperature_data = location_temperature_data[(location_temperature_data['tm'] >= start_date) & (location_temperature_data['tm'] < end_date)]
+
+        if not yearly_temperature_data.empty:
+            _, flowering_date = phenology_prediction.flowering(yearly_temperature_data, temperature_threshold, chill_requirement, heat_requirement, day_length, year)
+            if flowering_date is not None:
+                results.append([location, year, flowering_date])
+    return results
+
+
+### Main class for phenology prediction ###
 class phenology_prediction():
     def budburst(yearly_temperature_data, temperature_threshold, chill_requirement, heat_requirement):
         # set the start date of calculating chill days
@@ -198,64 +250,111 @@ class phenology_prediction():
         
         return dormancy_release_date, budburst_date
 
-
-    def predict_budburst(temperature_data, phenology_data, location_list, temperature_threshold_list, chill_requirement_list, min_obs, max_obs):        #min/max_obs: range of your analysis
+    # min/max_obs: range of your analysis
+    def predict_budburst(temperature_data,phenology_data, location_list, temperature_threshold_list, chill_requirement_list, min_obs, max_obs, n_jobs=1,
+                         show_progress=True, progress_callback=None, progress_context=None, output_folder="./train_test_data", output_file_name='budburst_prediction_result.csv'):
         phenology_data['bud_burst_date'] = pd.to_datetime(phenology_data['bud_burst_date'])
         phenology_data['year'] = phenology_data['bud_burst_date'].dt.year
         phenology_data['year'] = phenology_data['year'].fillna(0).astype(int)
+        years = list(range(min_obs, max_obs + 1))
+        location_temperature_map = {
+            location: temperature_data[temperature_data['location'] == location]
+            for location in location_list
+        }
         
         Tc_used = []
         Cr_used = []
         Root_Mean_Squared_Error = []
+        worker_count = _resolve_worker_count(n_jobs)
+        executor = ProcessPoolExecutor(max_workers=worker_count) if worker_count > 1 else None
         
-        for temperature_threshold in temperature_threshold_list:
-            for chill_requirement in chill_requirement_list:
-                results = []
-                
-                # Make location_temp_data and budburst prediction
-                for location in location_list:
-                    location_temperature_data = temperature_data[temperature_data['location'] == location]
-                    for year in range(min_obs, max_obs+1):
-                        start_date = datetime(year-1, 9, 1)
-                        end_date = datetime(year, 6, 1)
-                        yearly_temperature_data = location_temperature_data[(location_temperature_data['tm'] >= start_date) & (location_temperature_data['tm'] < end_date)]
-                    
-                        if not yearly_temperature_data.empty:
-                            dormancy_release_date, budburst_date = phenology_prediction.budburst(yearly_temperature_data, temperature_threshold, chill_requirement, abs(chill_requirement))
-                            if budburst_date is not None:
-                                results.append([location, year, budburst_date])
-                results_df = pd.DataFrame(results, columns= ['location', 'year', 'budburst_prediction'])
-    
-    
-                differs = []
-                for location in location_list:
-                    location_observed_data = phenology_data[phenology_data['location'] == location]
-                    location_estimated_data = results_df[results_df['location'] == location]
-                    
-                    for year in range(min_obs, max_obs):
-                        if location_observed_data['bud_burst_date'].dt.year.isin([year]).any() and location_estimated_data['year'].isin([year]).any():
-                            observed_date = location_observed_data[location_observed_data['bud_burst_date'].dt.year == year]['bud_burst_date'].iloc[0]
-                            estimated_date = location_estimated_data[location_estimated_data['year'] == year]['budburst_prediction'].iloc[0]
-                            difference = (observed_date - estimated_date).days
-                                
-                            if difference is not None:
-                                differs.append(difference)
+        try:
+            param_grid = list(product(temperature_threshold_list, chill_requirement_list))
+            param_iterator = _build_progress_iterator(param_grid, desc='budburst_parameters', total=len(param_grid), enabled=(show_progress and progress_callback is None))
+
+            for temperature_threshold, chill_requirement in param_iterator:
+                    results = []
+
+                    if show_progress and progress_callback is None and hasattr(param_iterator, 'set_postfix'):
+                        param_iterator.set_postfix_str(
+                            f"Tc={temperature_threshold}, Cr={chill_requirement}",
+                            refresh=False
+                        )
+
+            for temperature_threshold, chill_requirement in param_iterator:
+                    results = []
+
+                    if show_progress and progress_callback is None and hasattr(param_iterator, 'set_postfix'):
+                        param_iterator.set_postfix(
+                            Tc=temperature_threshold,
+                            Cr=chill_requirement)
+
+                    if worker_count == 1:
+                        for location in location_list:
+                            location_temperature_data = location_temperature_map[location]
+                            location_results = _predict_budburst_for_location((location, location_temperature_data, years, temperature_threshold, chill_requirement))
+                            if location_results:
+                                results.extend(location_results)
+                    else:
+                        tasks = [
+                            (location, location_temperature_map[location], years, temperature_threshold, chill_requirement)
+                            for location in location_list
+                        ]
+                        for location_results in executor.map(_predict_budburst_for_location, tasks):
+                            if location_results:
+                                results.extend(location_results)
+                    results_df = pd.DataFrame(results, columns= ['location', 'year', 'budburst_prediction'])
+
+
+                    differs = []
+                    for location in location_list:
+                        location_observed_data = phenology_data[phenology_data['location'] == location]
+                        location_estimated_data = results_df[results_df['location'] == location]
                         
-                # calculate Root Mean Squared Error(RMSE)
-                if differs:
-                    rmse = np.sqrt(np.mean(np.square(differs)))
-                else:
-                    rmse = None
-                    
-                Tc_used.append(temperature_threshold)
-                Cr_used.append(chill_requirement)
-                Root_Mean_Squared_Error.append(rmse)
+                        for year in range(min_obs, max_obs):
+                            if location_observed_data['bud_burst_date'].dt.year.isin([year]).any() and location_estimated_data['year'].isin([year]).any():
+                                observed_date = location_observed_data[location_observed_data['bud_burst_date'].dt.year == year]['bud_burst_date'].iloc[0]
+                                estimated_date = location_estimated_data[location_estimated_data['year'] == year]['budburst_prediction'].iloc[0]
+                                difference = (observed_date - estimated_date).days
+                                    
+                                if difference is not None:
+                                    differs.append(difference)
+                            
+                    # calculate Root Mean Squared Error(RMSE)
+                    if differs:
+                        rmse = np.sqrt(np.mean(np.square(differs)))
+                    else:
+                        rmse = None
+                        
+                    Tc_used.append(temperature_threshold)
+                    Cr_used.append(chill_requirement)
+                    Root_Mean_Squared_Error.append(rmse)
+
+                    if progress_callback is not None:
+                        callback_context = dict(progress_context) if isinstance(progress_context, dict) else {}
+                        callback_context.update({
+                            'temperature_threshold': temperature_threshold,
+                            'chill_requirement': chill_requirement
+                        })
+                        progress_callback(callback_context)
+        finally:
+            if executor is not None:
+                executor.shutdown()
 
         parameterset_rmse_df = pd.DataFrame({
             'temperature_threshold': Tc_used,
             'chill_requirement': Cr_used,
             'RMSE': Root_Mean_Squared_Error
         })
+
+        if output_folder is not None:
+            os.makedirs(output_folder, exist_ok=True)
+            file_name = output_file_name if output_file_name else 'budburst_prediction_result.csv'
+            parameterset_rmse_df.to_csv(
+                os.path.join(output_folder, file_name),
+                index=False,
+                encoding='utf-8-sig'
+            )
         
         return parameterset_rmse_df
 
@@ -303,13 +402,17 @@ class phenology_prediction():
         return dormancy_release_date, flowering_date
     
     
-    def predict_flowering(temperature_data, phenology_data, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list = [24], min_obs=1973, max_obs=2025, n_jobs=1):
+    def predict_flowering(temperature_data, phenology_data, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list = [24], min_obs=1973, max_obs=2025, n_jobs=1,
+                          show_progress=True, output_folder="./train_test_data", output_file_name='flowering_prediction_result.csv'):
         phenology_data['flowering_date'] = pd.to_datetime(phenology_data['flowering_date'])
         phenology_data['year'] = phenology_data['flowering_date'].dt.year
         phenology_data['year'] = phenology_data['year'].fillna(0).astype(int)
         phenology_data_sizecheck = phenology_data[(phenology_data['year'] >= min_obs) & (phenology_data['year'] <= max_obs)]['flowering_date'].notna().sum()
-        
-        n_jobs = 1 if n_jobs is None else int(n_jobs)
+        years = list(range(min_obs, max_obs + 1))
+        location_temperature_map = {
+            location: temperature_data[temperature_data['location'] == location]
+            for location in location_list
+        }
         
         Tc_used = []
         Cr_used = []
@@ -317,65 +420,80 @@ class phenology_prediction():
         Lc_used = []
         Mean_Absolute_Error = []
         Root_Mean_Squared_Error = []
+        worker_count = _resolve_worker_count(n_jobs)
+        executor = ProcessPoolExecutor(max_workers=worker_count) if worker_count > 1 else None
         
-        for temperature_threshold in tqdm(temperature_threshold_list, desc= 'temperature_threshold', position=0, total=len(temperature_threshold_list), leave=True, mininterval=20):
-            for chill_requirement in tqdm(chill_requirement_list, desc= 'chill_requirement', position=1, total=len(chill_requirement_list), leave= False, mininterval=20):
-                for heat_requirement in tqdm(heat_requirement_list, desc= 'heat_requirement', position=2, total=len(heat_requirement_list), leave= False, mininterval=20):
-                    for day_length in tqdm(day_length_list, desc= 'day_length', position=3, total=len(day_length_list), leave= False, mininterval=20):
-                        results = []
-                        
-                        if abs(chill_requirement) > heat_requirement:
-                            continue
-                        tqdm.write(f"PhenoFECT is current traveling past seasons with Parameters: {temperature_threshold}, {chill_requirement}, {heat_requirement}, {day_length}")
+        try:
+            param_grid = list(product(
+                temperature_threshold_list,
+                chill_requirement_list,
+                heat_requirement_list,
+                day_length_list
+            ))
+            total_params = len(param_grid)
+            param_iterator = _build_progress_iterator(param_grid, desc='flowering_params', total=total_params, enabled=show_progress)
 
-                        
-                        for location in location_list:
-                            location_temperature_data = temperature_data[temperature_data['location'] == location]
-                            for year in range(min_obs, max_obs+1):
-                                start_date = datetime(year-1, 9, 1)
-                                end_date = datetime(year, 6, 1)
-                                yearly_temperature_data = location_temperature_data[(location_temperature_data['tm'] >= start_date) & (location_temperature_data['tm'] < end_date)]
+            for temperature_threshold, chill_requirement, heat_requirement, day_length in param_iterator:
+                results = []
+                
+                # heat requirement should be greater than abs(chill requirement) based on CDM's assumption
+                if abs(chill_requirement) >= heat_requirement:
+                    continue
 
-                                if not yearly_temperature_data.empty:
-                                    dormancy_release_date, flowering_date = phenology_prediction.flowering(yearly_temperature_data, temperature_threshold, chill_requirement, heat_requirement, day_length, year)
-                                    if flowering_date is not None:
-                                        results.append([location, year, flowering_date])
-                        results_df = pd.DataFrame(results, columns = ['location', 'year', 'flowering_prediction'])
-                        
-                        # filtering parameter that is not appropriate for prediction
-                        if results_df['flowering_prediction'].isnull().sum() > int(0.1 * phenology_data_sizecheck):
-                            continue
-                        
-                        differs = []
-                        for location in location_list:
-                            location_observed_data = phenology_data[phenology_data['location'] == location]
-                            location_estimated_data = results_df[results_df['location'] == location]
+                if show_progress and hasattr(param_iterator, 'set_postfix'):
+                    param_iterator.set_postfix_str(f"Tc={temperature_threshold}, Cr={chill_requirement}, Hr={heat_requirement}, L={day_length}", refresh=False)
+
+                if worker_count == 1:
+                    for location in location_list:
+                        location_temperature_data = location_temperature_map[location]
+                        location_results = _predict_flowering_for_location((location, location_temperature_data, years, temperature_threshold, chill_requirement, heat_requirement, day_length))
+                        if location_results:
+                            results.extend(location_results)
+                else:
+                    tasks = [(location, location_temperature_map[location], years, temperature_threshold, chill_requirement, heat_requirement, day_length)
+                        for location in location_list]
+                    for location_results in executor.map(_predict_flowering_for_location, tasks):
+                        if location_results:
+                            results.extend(location_results)
+                results_df = pd.DataFrame(results, columns = ['location', 'year', 'flowering_prediction'])
+                
+                # filtering parameter that is not appropriate for prediction
+                if results_df['flowering_prediction'].isnull().sum() > int(0.1 * phenology_data_sizecheck):
+                    continue
+                
+                differs = []
+                for location in location_list:
+                    location_observed_data = phenology_data[phenology_data['location'] == location]
+                    location_estimated_data = results_df[results_df['location'] == location]
+                    
+                    for year in range(min_obs, max_obs):
+                        if location_observed_data['flowering_date'].dt.year.isin([year]).any() and location_estimated_data['year'].isin([year]).any():
+                            observed_date = location_observed_data[location_observed_data['flowering_date'].dt.year == year]['flowering_date'].iloc[0]
+                            estimated_date = location_estimated_data[location_estimated_data['year'] == year]['flowering_prediction'].iloc[0]
+                            difference = (observed_date - estimated_date).days
                             
-                            for year in range(min_obs, max_obs):
-                                if location_observed_data['flowering_date'].dt.year.isin([year]).any() and location_estimated_data['year'].isin([year]).any():
-                                    observed_date = location_observed_data[location_observed_data['flowering_date'].dt.year == year]['flowering_date'].iloc[0]
-                                    estimated_date = location_estimated_data[location_estimated_data['year'] == year]['flowering_prediction'].iloc[0]
-                                    difference = (observed_date - estimated_date).days
-                                    
-                                    if difference < 0:
-                                        difference = -difference
-                                    
-                                    if difference is not None:
-                                        differs.append(difference)
-                                        
-                        if differs:
-                            rmse = round(np.sqrt(np.mean(np.square(differs))), 3)
-                            mae = round(np.mean(differs), 3)
-                        else:
-                            rmse = None
-                            mae = None
-                        
-                        Tc_used.append(temperature_threshold)
-                        Cr_used.append(chill_requirement)
-                        Hr_used.append(heat_requirement)
-                        Lc_used.append(day_length)
-                        Mean_Absolute_Error.append(mae)
-                        Root_Mean_Squared_Error.append(rmse)
+                            if difference < 0:
+                                difference = -difference
+                            
+                            if difference is not None:
+                                differs.append(difference)
+                                
+                if differs:
+                    rmse = round(np.sqrt(np.mean(np.square(differs))), 3)
+                    mae = round(np.mean(differs), 3)
+                else:
+                    rmse = None
+                    mae = None
+                
+                Tc_used.append(temperature_threshold)
+                Cr_used.append(chill_requirement)
+                Hr_used.append(heat_requirement)
+                Lc_used.append(day_length)
+                Mean_Absolute_Error.append(mae)
+                Root_Mean_Squared_Error.append(rmse)
+        finally:
+            if executor is not None:
+                executor.shutdown()
             
         parameterset_error_df = pd.DataFrame({
             'temperature_threshold': Tc_used,
@@ -385,6 +503,15 @@ class phenology_prediction():
             'MAE': Mean_Absolute_Error,
             'RMSE': Root_Mean_Squared_Error
         })
+
+        if output_folder is not None:
+            os.makedirs(output_folder, exist_ok=True)
+            file_name = output_file_name if output_file_name else 'flowering_prediction_result.csv'
+            parameterset_error_df.to_csv(
+                os.path.join(output_folder, file_name),
+                index=False,
+                encoding='utf-8-sig'
+            )
             
         return parameterset_error_df
     
