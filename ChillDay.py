@@ -1,12 +1,15 @@
 ##### requirements #####
 import pandas as pd # type: ignore
 import numpy as np
-from datetime import datetime, timezone
+import seaborn as sns # type: ignore
+import sys
+import os
 import matplotlib.pyplot as plt  # type: ignore
+import matplotlib.colors as mcolors
 from matplotlib.backends.backend_pdf import PdfPages # type: ignore
 from matplotlib.ticker import MultipleLocator
+from datetime import datetime, timezone
 from mpl_toolkits.mplot3d import Axes3D # type: ignore
-import seaborn as sns # type: ignore
 from scipy.interpolate import RegularGridInterpolator # type: ignore
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster # type: ignore
 from sklearn.linear_model import LinearRegression # type: ignore
@@ -14,10 +17,10 @@ from sklearn.preprocessing import StandardScaler # type: ignore
 from sklearn.cluster import AgglomerativeClustering # type: ignore
 from sklearn.manifold import TSNE # type: ignore
 from ast import literal_eval
-import sys
-import matplotlib.colors as mcolors
-from .Variables import el_nino_years, la_nina_years
-from tqdm.notebook import tqdm
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+from Variables import el_nino_years, la_nina_years
+from tqdm.auto import tqdm
 
 
 # optional 1) !pip install koreanize-matplotlib 2) import koreanize_matplotlib 3) %matplotlib inline
@@ -47,6 +50,71 @@ def select_data(location_list, phenology_data, temperature_data):          # fil
     temperature_data = temperature_data[temperature_data['location'].isin(location_list)]
     
     return phenology_data, temperature_data
+
+
+def split_train_test_by_blocks(phenology_data, date_column="flowering_date", block_size=10, samples_per_block=2, random_state=42):
+    data = phenology_data.copy()
+    data[date_column] = pd.to_datetime(data[date_column], errors='coerce')
+    data["_split_year"] = data[date_column].dt.year
+    years = data["_split_year"].dropna().astype(int)
+
+    start_year = int(years.min())
+    end_year = int(years.max())
+
+    rng = np.random.default_rng(random_state)
+    test_years = []
+
+    for block_start in range(start_year, end_year + 1, block_size):
+        block_end = block_start + block_size - 1
+        block_years = data.loc[
+            data["_split_year"].between(block_start, block_end, inclusive="both"),
+            "_split_year"
+        ].dropna().astype(int).unique()
+
+        if block_years.size == 0:
+            continue
+
+        k = min(samples_per_block, block_years.size)
+        sampled = rng.choice(block_years, size=k, replace=False)
+        test_years.extend(sampled.tolist())
+
+    test_years = sorted(set(test_years))
+    test_mask = data["_split_year"].isin(test_years)
+
+    train_data = data.loc[~test_mask].drop(columns=["_split_year"])
+    test_data = data.loc[test_mask].drop(columns=["_split_year"])
+
+    return train_data, test_data, test_years
+
+
+def split_train_test(phenology_data, n_samples, output_dir="./train_test_data", date_column="flowering_date", block_size=10, samples_per_block=2, random_state=42):
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    summary = []
+    for i in range(1, n_samples + 1):
+        seed_i = None if random_state is None else random_state + (i - 1)
+
+        train_data, test_data, test_years = split_train_test_by_blocks(
+            phenology_data=phenology_data,
+            date_column=date_column,
+            block_size=block_size,
+            samples_per_block=samples_per_block,
+            random_state=seed_i
+        )
+
+        train_data.to_csv(out / f"train_{i}.csv", index=False)
+        test_data.to_csv(out / f"test_{i}.csv", index=False)
+
+        summary.append({
+            "sample": i,
+            "seed": seed_i,
+            "test_years": test_years,
+            "n_train": len(train_data),
+            "n_test": len(test_data),
+        })
+
+    return pd.DataFrame(summary)
 
 
 ### Bud-burst. Flowering Prediction based on Chill-Days Model Formulas ###
@@ -235,11 +303,13 @@ class phenology_prediction():
         return dormancy_release_date, flowering_date
     
     
-    def predict_flowering(temperature_data, phenology_data, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list = [24], min_obs=1973, max_obs=2025):
+    def predict_flowering(temperature_data, phenology_data, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list = [24], min_obs=1973, max_obs=2025, n_jobs=1):
         phenology_data['flowering_date'] = pd.to_datetime(phenology_data['flowering_date'])
         phenology_data['year'] = phenology_data['flowering_date'].dt.year
         phenology_data['year'] = phenology_data['year'].fillna(0).astype(int)
         phenology_data_sizecheck = phenology_data[(phenology_data['year'] >= min_obs) & (phenology_data['year'] <= max_obs)]['flowering_date'].notna().sum()
+        
+        n_jobs = 1 if n_jobs is None else int(n_jobs)
         
         Tc_used = []
         Cr_used = []
@@ -632,7 +702,7 @@ class phenology_clustering():
     
                      
 class phenology_visualization():
-    def budburst_error_heatmap(parameterset_rmse_df, x_axis_size = 17, y_axis_size = 12, arrange = 1, figure_title = "Heatmap of RMSE Trend about para1, para2 in Phenology Prediction"):           # if you set your x-axis as first parameter, let arrange = 1
+    def budburst_error_heatmap(parameterset_rmse_df, x_axis_size = 17, y_axis_size = 12, arrange = 1, annot=True, figure_title = "Heatmap of RMSE Trend about para1, para2 in Phenology Prediction"):           # if you set your x-axis as first parameter, let arrange = 1
         plt.rcParams['figure.figsize'] = [x_axis_size, y_axis_size]
         plt.rcParams['xtick.minor.visible'] = False
         error_df = parameterset_rmse_df
@@ -643,18 +713,18 @@ class phenology_visualization():
         elif arrange == 2:
             error_df = error_df.pivot(index=error_df_columns[0], columns=error_df_columns[1], values=error_df_columns[2])
         
-        error_heatmap = sns.heatmap(error_df, cmap='YlGnBu', annot=True, fmt = '.2f')
+        error_heatmap = sns.heatmap(error_df, cmap='YlGnBu', annot=annot, fmt = '.2f')
         error_heatmap.set_xlabel(error_df.columns.name, fontsize=18)
         error_heatmap.set_ylabel(error_df.index.name, fontsize=18)
         plt.title(figure_title, fontsize=20)
         plt.show()
     
-    def flowering_error_heatmap(parameterset_error_df, errortype = 'MAE', para1 = 'heat_requirement', para2 = 'chill_requriement', figure_title = "Heatmap of MAE Trend about Cr & Hr in Flowering Date Prediction"):
+    def flowering_error_heatmap(parameterset_error_df, errortype = 'MAE', annot=True, para1 = 'heat_requirement', para2 = 'chill_requriement', figure_title = "Heatmap of MAE Trend about Cr & Hr in Flowering Date Prediction"):
         plt.rcParams['xtick.minor.visible'] = False
         error_df = parameterset_error_df
         error_df = error_df.groupby([para1, para2])[errortype].min().reset_index()
         error_df = error_df.pivot(index=para1, columns=para2, values=errortype)
-        error_df = sns.heatmap(error_df, cmap='YlGnBu', annot=True, fmt='.2f')
+        error_df = sns.heatmap(error_df, cmap='YlGnBu', annot=annot, fmt='.2f')
         plt.title(figure_title, fontsize=13)
         plt.xlabel(para2, fontsize=15)
         plt.ylabel(para1, fontsize=15)
