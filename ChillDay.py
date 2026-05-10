@@ -172,11 +172,11 @@ def _resolve_worker_count(n_jobs):
 
     return max(1, worker_count)
 
-def _build_progress_iterator(iterable, desc, total, enabled=True):
+def _build_progress_bar(desc, total, enabled=True):
     if not enabled:
-        return iterable
+        return None
 
-    return tqdm(iterable, desc=desc, total=total, leave=False, mininterval=0.5,dynamic_ncols=True,position=0,
+    return tqdm(desc=desc, total=total, leave=True, mininterval=0.5, miniters=1, dynamic_ncols=True, position=0,
         bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}')
 
 
@@ -212,6 +212,87 @@ def _predict_flowering_for_location(args):
 
 ### Main class for phenology prediction ###
 class phenology_prediction():
+    def search_space_extractor(parameterset_error_df, rmse_column='RMSE', 
+                               tc_column='temperature_threshold', cr_column='chill_requirement', hr_column='heat_requirement', q1_quantile=0.25, verbose=True):
+        if not isinstance(parameterset_error_df, pd.DataFrame):
+            raise TypeError("parameterset_error_df should be a pandas DataFrame.")
+        if parameterset_error_df.empty:
+            raise ValueError("parameterset_error_df is empty.")
+        if rmse_column not in parameterset_error_df.columns:
+            raise ValueError(f"'{rmse_column}' column is not in the input DataFrame.")
+
+        analysis_df = parameterset_error_df.copy()
+        analysis_df[rmse_column] = pd.to_numeric(analysis_df[rmse_column], errors='coerce')
+
+        for parameter_column in [tc_column, cr_column, hr_column]:
+            if parameter_column in analysis_df.columns:
+                analysis_df[parameter_column] = pd.to_numeric(analysis_df[parameter_column], errors='coerce')
+
+        valid_df = analysis_df.dropna(subset=[rmse_column]).copy()
+        rmse_series = valid_df[rmse_column]
+
+        distribution_summary = {
+            'count': int(rmse_series.count()),
+            'mean': float(rmse_series.mean()),
+            'std': float(rmse_series.std(ddof=1)) if rmse_series.count() > 1 else 0.0,
+            'min': float(rmse_series.min()),
+            'q1': float(rmse_series.quantile(0.25)),
+            'median': float(rmse_series.quantile(0.50)),
+            'q3': float(rmse_series.quantile(0.75)),
+            'max': float(rmse_series.max())
+        }
+
+        five_number_summary = {
+            'min': distribution_summary['min'],
+            'q1': distribution_summary['q1'],
+            'median': distribution_summary['median'],
+            'q3': distribution_summary['q3'],
+            'max': distribution_summary['max']
+        }
+
+        q1_threshold = float(rmse_series.quantile(float(q1_quantile)))
+        q1_df = valid_df[valid_df[rmse_column] <= q1_threshold].copy()
+        if q1_df.empty:
+            q1_df = valid_df.nsmallest(1, rmse_column).copy()
+
+        def extract_range(target_df, column_name):
+            if column_name not in target_df.columns:
+                return None
+            numeric_series = pd.to_numeric(target_df[column_name], errors='coerce').dropna()
+            if numeric_series.empty:
+                return None
+            return {
+                'min': float(numeric_series.min()),
+                'max': float(numeric_series.max())
+            }
+
+        recommended_range = {
+            'tc_range': extract_range(q1_df, tc_column),
+            'cr_range': extract_range(q1_df, cr_column),
+            'hr_range': extract_range(q1_df, hr_column) if hr_column in q1_df.columns else None
+        }
+
+        result = {
+            'total_rows': int(len(parameterset_error_df)),
+            'valid_rmse_rows': int(len(valid_df)),
+            'q1_rows': int(len(q1_df)),
+            'q1_threshold': q1_threshold,
+            'distribution_summary': distribution_summary,
+            'five_number_summary': five_number_summary,
+            'recommended_range': recommended_range,
+            'q1_subset_df': q1_df.sort_values(by=rmse_column, ascending=True).reset_index(drop=True)
+        }
+
+        if verbose:
+            print("[search_space_extractor] RMSE distribution summary:")
+            print(distribution_summary)
+            print("[search_space_extractor] five-number summary:")
+            print(five_number_summary)
+            print(f"[search_space_extractor] q1_threshold (quantile={q1_quantile}): {q1_threshold:.4f}")
+            print("[search_space_extractor] recommended ranges:")
+            print(recommended_range)
+
+    
     def budburst(yearly_temperature_data, temperature_threshold, chill_requirement, heat_requirement):
         # set the start date of calculating chill days
         start_index = 0
@@ -251,7 +332,7 @@ class phenology_prediction():
         return dormancy_release_date, budburst_date
 
     # min/max_obs: range of your analysis
-    def predict_budburst(temperature_data,phenology_data, location_list, temperature_threshold_list, chill_requirement_list, min_obs, max_obs, n_jobs=1,
+    def predict_budburst(temperature_data, phenology_data, location_list, temperature_threshold_list, chill_requirement_list, min_obs, max_obs, n_jobs=1,
                          show_progress=True, progress_callback=None, progress_context=None, output_folder="./train_test_data", output_file_name='budburst_prediction_result.csv'):
         phenology_data['bud_burst_date'] = pd.to_datetime(phenology_data['bud_burst_date'])
         phenology_data['year'] = phenology_data['bud_burst_date'].dt.year
@@ -270,24 +351,15 @@ class phenology_prediction():
         
         try:
             param_grid = list(product(temperature_threshold_list, chill_requirement_list))
-            param_iterator = _build_progress_iterator(param_grid, desc='budburst_parameters', total=len(param_grid), enabled=(show_progress and progress_callback is None))
+            progress_bar = _build_progress_bar(desc='budburst_parameters', total=len(param_grid), enabled=(show_progress and progress_callback is None))
 
-            for temperature_threshold, chill_requirement in param_iterator:
+            for temperature_threshold, chill_requirement in param_grid:
                     results = []
 
-                    if show_progress and progress_callback is None and hasattr(param_iterator, 'set_postfix'):
-                        param_iterator.set_postfix_str(
-                            f"Tc={temperature_threshold}, Cr={chill_requirement}",
-                            refresh=False
+                    if progress_bar is not None:
+                        progress_bar.set_postfix_str(
+                            f"Tc={temperature_threshold}, Cr={chill_requirement}", refresh=False
                         )
-
-            for temperature_threshold, chill_requirement in param_iterator:
-                    results = []
-
-                    if show_progress and progress_callback is None and hasattr(param_iterator, 'set_postfix'):
-                        param_iterator.set_postfix(
-                            Tc=temperature_threshold,
-                            Cr=chill_requirement)
 
                     if worker_count == 1:
                         for location in location_list:
@@ -337,7 +409,11 @@ class phenology_prediction():
                             'chill_requirement': chill_requirement
                         })
                         progress_callback(callback_context)
+                    if progress_bar is not None:
+                        progress_bar.update(1)
         finally:
+            if 'progress_bar' in locals() and progress_bar is not None:
+                progress_bar.close()
             if executor is not None:
                 executor.shutdown()
 
@@ -431,17 +507,19 @@ class phenology_prediction():
                 day_length_list
             ))
             total_params = len(param_grid)
-            param_iterator = _build_progress_iterator(param_grid, desc='flowering_params', total=total_params, enabled=show_progress)
+            progress_bar = _build_progress_bar(desc='flowering_parameters', total=total_params, enabled=show_progress)
 
-            for temperature_threshold, chill_requirement, heat_requirement, day_length in param_iterator:
+            for temperature_threshold, chill_requirement, heat_requirement, day_length in param_grid:
                 results = []
                 
                 # heat requirement should be greater than abs(chill requirement) based on CDM's assumption
                 if abs(chill_requirement) >= heat_requirement:
+                    if progress_bar is not None:
+                        progress_bar.update(1)
                     continue
 
-                if show_progress and hasattr(param_iterator, 'set_postfix'):
-                    param_iterator.set_postfix_str(f"Tc={temperature_threshold}, Cr={chill_requirement}, Hr={heat_requirement}, L={day_length}", refresh=False)
+                if progress_bar is not None:
+                    progress_bar.set_postfix_str(f"Tc={temperature_threshold}, Cr={chill_requirement}, Hr={heat_requirement}, L={day_length}", refresh=False)
 
                 if worker_count == 1:
                     for location in location_list:
@@ -459,6 +537,8 @@ class phenology_prediction():
                 
                 # filtering parameter that is not appropriate for prediction
                 if results_df['flowering_prediction'].isnull().sum() > int(0.1 * phenology_data_sizecheck):
+                    if progress_bar is not None:
+                        progress_bar.update(1)
                     continue
                 
                 differs = []
@@ -491,7 +571,11 @@ class phenology_prediction():
                 Lc_used.append(day_length)
                 Mean_Absolute_Error.append(mae)
                 Root_Mean_Squared_Error.append(rmse)
+                if progress_bar is not None:
+                    progress_bar.update(1)
         finally:
+            if 'progress_bar' in locals() and progress_bar is not None:
+                progress_bar.close()
             if executor is not None:
                 executor.shutdown()
             
@@ -515,6 +599,96 @@ class phenology_prediction():
             
         return parameterset_error_df
     
+
+    def cross_validation_r1(temperature_data, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list = [24], min_obs=1973, max_obs=2025, n_jobs=1,
+                          split_num=3, show_progress=True, output_folder="./train_test_data", output_file_prefix="flowering_prediction_result"):
+        for i in range(1, split_num + 1):
+            train_file_dir = os.path.join(output_folder, f"train_{i}.csv")
+            train_file = pd.read_csv(train_file_dir)
+            
+            output_folder = os.path.join(output_folder, f"flowering_search_1")
+            os.makedirs(output_folder, exist_ok=True)
+            error_df = phenology_prediction.predict_flowering(temperature_data, train_file, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list, 
+                                                              min_obs, max_obs, n_jobs, show_progress, output_folder, f"{output_file_prefix}_{i}.csv")
+            
+            for c in ['temperature_threshold', 'chill_requirement', 'heat_requirement', 'MAE', 'RMSE']:
+                if c in error_df.columns:
+                    error_df[c] = pd.to_numeric(error_df[c], errors='coerce')
+            error_df = error_df.dropna(subset=['temperature_threshold', 'chill_requirement', 'heat_requirement', 'RMSE']).reset_index(drop=True)
+
+            best_idx = error_df['RMSE'].idxmin()
+            best_row = error_df.loc[best_idx]
+
+            best_tc = float(best_row['temperature_threshold'])
+            best_cr = float(best_row['chill_requirement'])
+            best_hr = float(best_row['heat_requirement'])
+            best_mae = float(best_row['MAE']) if pd.notna(best_row['MAE']) else np.nan
+            best_rmse = float(best_row['RMSE'])
+
+            print(f"train_test_set {i}: ")
+            print(f"Best parameter set: Tc - {best_tc}, Cr - {best_cr}, Hr - {best_hr}")
+            print(f"Best errors: MAE - {best_mae}, RMSE - {best_rmse}")
+            print(error_df.head())
+            
+
+    def cross_validation_r2(temperature_data, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list = [24], min_obs=1973, max_obs=2025, n_jobs=1,
+                            split_set_index=1, show_progress=True, output_folder="./train_test_data", output_file_prefix="flowering_prediction_result"):
+        train_file_dir = os.path.join(output_folder, f"train_{split_set_index}.csv")
+        train_file = pd.read_csv(train_file_dir)
+
+        output_folder = os.path.join(output_folder, f"flowering_search_2")
+        os.makedirs(output_folder, exist_ok=True)
+        error_df = phenology_prediction.predict_flowering(temperature_data, train_file, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list, 
+                                                          min_obs, max_obs, n_jobs, show_progress, output_folder, f"{output_file_prefix}_{split_set_index}.csv")
+        print(f"train_test_set {split_set_index}: ")
+
+        analysis_df = error_df.copy()
+        for c in ['temperature_threshold', 'chill_requirement', 'heat_requirement', 'MAE', 'RMSE']:
+            if c in analysis_df.columns:
+                analysis_df[c] = pd.to_numeric(analysis_df[c], errors='coerce')
+
+        analysis_df = analysis_df.dropna(subset=['temperature_threshold', 'chill_requirement', 'heat_requirement', 'RMSE']).reset_index(drop=True)
+
+        best_idx = analysis_df['RMSE'].idxmin()
+        best_row = analysis_df.loc[best_idx]
+
+        best_tc = float(best_row['temperature_threshold'])
+        best_cr = float(best_row['chill_requirement'])
+        best_hr = float(best_row['heat_requirement'])
+        best_mae = float(best_row['MAE']) if pd.notna(best_row['MAE']) else np.nan
+        best_rmse = float(best_row['RMSE'])
+
+        def pick_7_values_around_best(series, best_value, radius=3):
+            uniq = np.array(sorted(series.dropna().unique()), dtype=float)
+            if uniq.size == 0:
+                return []
+            center_idx = int(np.argmin(np.abs(uniq - best_value)))
+            left = max(0, center_idx - radius)
+            right = min(len(uniq), center_idx + radius + 1)
+            return uniq[left:right].tolist()
+
+        tc_candidates = pick_7_values_around_best(analysis_df['temperature_threshold'], best_tc, radius=3)
+        cr_candidates = pick_7_values_around_best(analysis_df['chill_requirement'], best_cr, radius=3)
+        hr_candidates = pick_7_values_around_best(analysis_df['heat_requirement'], best_hr, radius=3)
+
+        local_cube_df = analysis_df[
+            analysis_df['temperature_threshold'].isin(tc_candidates) &
+            analysis_df['chill_requirement'].isin(cr_candidates) &
+            analysis_df['heat_requirement'].isin(hr_candidates)].copy()
+
+        # calculate RMSE perturbation (how much worse the RMSE can get within the local cube compared to the best RMSE)
+        if local_cube_df.empty:
+            rmse_perturbation = np.nan
+        else:
+            rmse_delta = local_cube_df['RMSE'] - best_rmse
+            rmse_perturbation = float(rmse_delta.max())
+
+        print(f"Best parameter set: Tc - {best_tc}, Cr - {best_cr}, Hr - {best_hr}")
+        print(f"Best error: MAE - {best_mae}, RMSE - {best_rmse}, RMSE perturbation - {rmse_perturbation}")
+
+        return error_df
+
+
     def bestfit(temperature_data, phenology_data, location_list, temperature_threshold, chill_requirement, heat_requirement, day_length, min_obs, max_obs, sorting = False, errortype = 'MAE'):
         phenology_data['flowering_date'] = pd.to_datetime(phenology_data['flowering_date'])
         phenology_data['year'] = phenology_data['flowering_date'].dt.year
