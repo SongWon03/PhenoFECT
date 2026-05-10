@@ -606,10 +606,10 @@ class phenology_prediction():
             train_file_dir = os.path.join(output_folder, f"train_{i}.csv")
             train_file = pd.read_csv(train_file_dir)
             
-            output_folder = os.path.join(output_folder, f"flowering_search_1")
-            os.makedirs(output_folder, exist_ok=True)
+            output_folder_i = os.path.join(output_folder, f"flowering_search_1")
+            os.makedirs(output_folder_i, exist_ok=True)
             error_df = phenology_prediction.predict_flowering(temperature_data, train_file, location_list, temperature_threshold_list, chill_requirement_list, heat_requirement_list, day_length_list, 
-                                                              min_obs, max_obs, n_jobs, show_progress, output_folder, f"{output_file_prefix}_{i}.csv")
+                                                              min_obs, max_obs, n_jobs, show_progress, output_folder_i, f"{output_file_prefix}_{i}.csv")
             
             for c in ['temperature_threshold', 'chill_requirement', 'heat_requirement', 'MAE', 'RMSE']:
                 if c in error_df.columns:
