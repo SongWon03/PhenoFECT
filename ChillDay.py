@@ -658,7 +658,7 @@ class phenology_prediction():
         best_mae = float(best_row['MAE']) if pd.notna(best_row['MAE']) else np.nan
         best_rmse = float(best_row['RMSE'])
 
-        def pick_7_values_around_best(series, best_value, radius=3):
+        def pick_3_values_around_best(series, best_value, radius=1):
             uniq = np.array(sorted(series.dropna().unique()), dtype=float)
             if uniq.size == 0:
                 return []
@@ -667,9 +667,9 @@ class phenology_prediction():
             right = min(len(uniq), center_idx + radius + 1)
             return uniq[left:right].tolist()
 
-        tc_candidates = pick_7_values_around_best(analysis_df['temperature_threshold'], best_tc, radius=3)
-        cr_candidates = pick_7_values_around_best(analysis_df['chill_requirement'], best_cr, radius=3)
-        hr_candidates = pick_7_values_around_best(analysis_df['heat_requirement'], best_hr, radius=3)
+        tc_candidates = pick_3_values_around_best(analysis_df['temperature_threshold'], best_tc, radius=1)
+        cr_candidates = pick_3_values_around_best(analysis_df['chill_requirement'], best_cr, radius=1)
+        hr_candidates = pick_3_values_around_best(analysis_df['heat_requirement'], best_hr, radius=1)
 
         local_cube_df = analysis_df[
             analysis_df['temperature_threshold'].isin(tc_candidates) &
@@ -681,7 +681,7 @@ class phenology_prediction():
             rmse_perturbation = np.nan
         else:
             rmse_delta = local_cube_df['RMSE'] - best_rmse
-            rmse_perturbation = float(rmse_delta.max())
+            rmse_perturbation = float(rmse_delta.min())
 
         print(f"Best parameter set: Tc - {best_tc}, Cr - {best_cr}, Hr - {best_hr}")
         print(f"Best error: MAE - {best_mae}, RMSE - {best_rmse}, RMSE perturbation - {rmse_perturbation}")
