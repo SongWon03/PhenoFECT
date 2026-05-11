@@ -1026,9 +1026,9 @@ class phenology_visualization():
         error_df = error_df.groupby([para1, para2])[errortype].min().reset_index()
         error_df = error_df.pivot(index=para1, columns=para2, values=errortype)
         error_df = sns.heatmap(error_df, cmap='YlGnBu', annot=annot, fmt='.2f')
-        plt.title(figure_title, fontsize=13)
-        plt.xlabel(para2, fontsize=15)
-        plt.ylabel(para1, fontsize=15)
+        plt.title(figure_title, fontsize=22)
+        plt.xlabel(para2, fontsize=20)
+        plt.ylabel(para1, fontsize=20)
         plt.show()
     
     
@@ -1056,8 +1056,8 @@ class phenology_visualization():
         contour2 = ax.contourf(X, Y, Z, levels=256, cmap = 'jet')
         
         ax.clabel(contour1, contour1.levels, inline=True)
-        ax.set_xlabel(label2, fontsize=16)
-        ax.set_ylabel(label1, fontsize=16)
+        ax.set_xlabel(label2, fontsize=18)
+        ax.set_ylabel(label1, fontsize=18)
         cbar = fig.colorbar(contour2, shrink=0.9)
         cbar.set_label(label3, fontsize=14)
         
