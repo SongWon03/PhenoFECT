@@ -996,7 +996,7 @@ class phenology_clustering():
             plt.subplots_adjust(right=0.80)
             plt.show()
         else:
-            print("Visualization of 4th Dimension is not supported in phenoloPy.")            
+            print("Visualization of 4th Dimension is not supported in PhenoFECT.")            
             print("\nPlease Check Your DataFrame.")
         temperature_time_increment_df.to_csv("clustered_temperature_time_increment_df.csv", index=False)
         return temperature_time_increment_df
