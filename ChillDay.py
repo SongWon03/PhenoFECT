@@ -929,13 +929,42 @@ class phenology_clustering():
         plt.show()
         return temperature_time_increment_df, temperature_time_increment_scaled
     
-    def tsne_visualization(directory1, directory2, phenology_data, method = 'ward', representative_values = False, n_components = 2, random_states=150, perplexity=50, individual = False, alpha=0.8):
+    def tsne_visualization(directory1, directory2, phenology_data, method = 'ward', representative_values = False, n_components = 2, random_states=150, perplexity=50, individual = False, alpha=0.8, 
+                           default_cutting = False, min_clusters = 3, max_clusters = 10):
         temperature_time_increment_df, temperature_time_increment_scaled = phenology_clustering.hierarchical_clustering(directory1, directory2, phenology_data, method)
         linked = linkage(temperature_time_increment_scaled, method = method)
         
-        max_distance = int(input("Set Your Clustering Criteria based on Hierarchical Clustering Plot (ex:28)"))
-        clusters = fcluster(linked, max_distance, criterion = 'distance')
-        temperature_time_increment_df['cluster'] = clusters
+        from sklearn.metrics import silhouette_score
+        if default_cutting:
+            best_score = -1
+            best_k = None
+            best_clusters = None
+            
+            for k in range(min_clusters, max_clusters+1):
+                candidate_clusters = fcluster(linked, t=k, criterion="maxclust")
+                
+                if len(np.unique(candidate_clusters)) < 2:
+                    continue
+
+                score = silhouette_score(temperature_time_increment_scaled, candidate_clusters)
+
+                if score > best_score:
+                    best_score = score
+                    best_k = k
+                    best_clusters = candidate_clusters
+            
+            clusters = best_clusters
+            temperature_time_increment_df['cluster'] = clusters
+            print(f"Default cutting selected {best_k} clusters based on the higest silhouette score.")
+            print(f"Silhouette Score for Clustering Quality Check: {best_score:.3f}")
+        
+        else: 
+            max_distance = int(input("Set Your Clustering Criteria based on Hierarchical Clustering Plot (ex:28)"))
+            clusters = fcluster(linked, max_distance, criterion = 'distance')
+            temperature_time_increment_df['cluster'] = clusters
+
+            clustering_score = silhouette_score(temperature_time_increment_scaled, clusters)
+            print(f"Silhouette Score for Clustering Quality Check: {clustering_score:.3f}")
         
         cluster_counts = temperature_time_increment_df['cluster'].value_counts()
         print(f"Number of data points in each cluster: {cluster_counts}")
