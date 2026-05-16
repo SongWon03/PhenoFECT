@@ -924,7 +924,7 @@ class phenology_clustering():
         plt.figure(figsize=(80,20))
         dendrogram(linked, orientation='top', distance_sort = 'descending', show_leaf_counts = True, leaf_font_size=0.01)
         plt.title('Dendrogram of Hierarchical Clustering of Temperature Time Vector of the Chill-Day Model', fontsize=75)
-        plt.xlabel('Distance', fontsize=75)
+        plt.ylabel('Distance', fontsize=75)
         plt.yticks(fontsize=40)
         plt.show()
         return temperature_time_increment_df, temperature_time_increment_scaled
