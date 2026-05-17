@@ -1538,6 +1538,8 @@ class phenology_visualization():
         def permutation_pvalue(x, y, B=30000, seed=7):
             rng = np.random.default_rng(seed)
             x = np.asarray(x, float); y = np.asarray(y, float)
+            x = x[~np.isnan(x)]
+            y = y[~np.isnan(y)]
             if x.size == 0 or y.size == 0:
                 return np.nan, np.nan, (x.size, y.size)
             obs = x.mean() - y.mean()
