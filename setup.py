@@ -5,11 +5,11 @@ with open("requirements.txt") as f:
 
 setup(
     name="phenofect",
-    version="1.0.4", 
+    version="1.0.5", 
     license='MIT',
     author="Songwon Kim",
     author_email="kimsongwon10@korea.ac.kr",
-    description="Package for Forecasting and Exploration of Plant Phenology under Climate Change, which has Parameter Examination, Visualization, Clustering and so on... with Phenological & Meteorological Data.",
+    description="Python Package for Phenology Forecasting and Exploring under ClimaTe change (PhenoFECT) which is Korea and Japan data embedded integrated workflow.",
     long_description=open('README.md', encoding='utf-8').read(),
     long_description_content_type='text/markdown',
     url="https://github.com/SongWon03/PhenoFECT",
@@ -26,3 +26,4 @@ setup(
     python_requires='>=3.10',
     install_requires=requirements
 )
+
