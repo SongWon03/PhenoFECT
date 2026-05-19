@@ -1,3 +1,6 @@
+![PhenoFECT Logo](https://github.com/SongWon03/PhenoFECT/blob/main/Imgs/PhenoFECT_Logo.png)
+---
+
 # PhenoFECT: Phenology Forecasting and Exploring under ClimaTe change
 
 This package is developed as a [CSBL](https://github.com/CompSynBioLab-KoreaUniv) URAP (undergraduate research apprentice project) during 2024 Summer by [Songwon Kim](https://github.com/SongWon03).
