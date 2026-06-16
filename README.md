@@ -95,7 +95,7 @@ In the Phenology Model, we call the cold requirement as '*Chill-requirement(Cr)*
 The source code is currently hosted on GitHub at:
 [https://github.com/SongWon03/PhenoFECT](https://github.com/SongWon03/PhenoFECT)
 
-Installers for the latest released version are available at the Python Package Index (PyPI; https://pypi.org/project/phenofect/).
+Installers for the latest released version are available at the [Python Package Index (PyPI)](https://pypi.org/project/phenofect/).
 
 ```python
 # PyPI
