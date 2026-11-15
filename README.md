@@ -21,6 +21,7 @@ What is **Chill-Day model** and how to apply?
   - [Description for Embedded Dataset (**Japan**)](#description-for-embedded-dataset-japan)
   - [Physiological Background for Plant Phenology](#physiological-background-for-plant-phenology)
   - [Where to get it](#where-to-get-it)
+  - [How to Cite](#how-to-cite)
   - [Useful Readings \& Links](#useful-readings--links)
   - [Contributing to PhenoFECT](#contributing-to-phenofect)
 
@@ -102,6 +103,10 @@ Installers for the latest released version are available at the [Python Package 
 
 pip install phenofect
 ```  
+
+## How to Cite
+
+> Kim, S., and I.-G. Choi. 2026. PhenoFECT: A Python package for forecasting and exploring plant phenology under climate change. *Applications in Plant Sciences* 14(6): e70088. https://doi.org/10.1002/aps3.70088
 
 ## Useful Readings & Links
 
